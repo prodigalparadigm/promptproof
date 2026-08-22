@@ -14,6 +14,11 @@ wrong:
   models. Sending a frontier-shaped ``thinking`` block to an older model is a
   400; letting each model use its own default is correct and keeps the
   cross-model comparison honest.
+* Because each model keeps its own default, models that think by default spend
+  ``max_tokens`` on thinking before they emit any text. A ceiling that is
+  comfortable for the reply alone can therefore return a truncated, textless
+  response; that case is detected and reported as an actionable error rather
+  than as an empty reply the judge would happily grade.
 """
 
 from __future__ import annotations
@@ -27,6 +32,15 @@ from ..errors import ProviderError
 from .base import Completion
 
 DEFAULT_MAX_TOKENS = 4096
+
+#: Set by Workload Identity Federation. The SDK resolves these itself at request
+#: time and exposes nothing on the client, so the fail-fast credential check has
+#: to look for them directly or it would reject a correctly configured machine.
+_FEDERATION_ENV_VARS = (
+    "ANTHROPIC_FEDERATION_RULE_ID",
+    "ANTHROPIC_ORGANIZATION_ID",
+    "ANTHROPIC_SERVICE_ACCOUNT_ID",
+)
 
 
 class AnthropicProvider:
@@ -61,6 +75,8 @@ class AnthropicProvider:
             ) from exc
 
         self._anthropic = anthropic
+        self.timeout = timeout
+        self.max_retries = max_retries
         kwargs: dict[str, object] = {"timeout": timeout, "max_retries": max_retries}
         key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if key:
@@ -74,17 +90,66 @@ class AnthropicProvider:
         The SDK defers this to request time and raises a bare ``TypeError`` from
         deep inside header construction. Surfacing it here means one clear line
         instead of every case in the matrix erroring identically.
+
+        Deliberately biased toward letting the request through: an API key, an
+        auth token, and a resolved profile all show up on the client, but
+        federated credentials are resolved later and show up nowhere, so their
+        environment variables are checked directly. A false "no credentials"
+        that blocks a correctly configured machine is a worse failure than one
+        clear 401 from the API.
         """
         client = self._client
-        if any(
-            getattr(client, attr, None)
-            for attr in ("api_key", "auth_token", "credentials")
-        ):
+        if any(getattr(client, attr, None) for attr in ("api_key", "auth_token", "credentials")):
+            return
+        if all(os.environ.get(name) for name in _FEDERATION_ENV_VARS):
             return
         raise ProviderError(
             "no Anthropic credentials found. Set ANTHROPIC_API_KEY, run `ant auth login`, "
             "or use --provider stub for a fully offline run",
             model="<none>",
+        )
+
+    @staticmethod
+    def _reply_text(response: object, *, model: str, max_tokens: int) -> str:
+        """Pull the assistant text out of one response, or say why there is none.
+
+        Args:
+            response: The SDK's message object.
+            model: Model id, for error attribution.
+            max_tokens: The ceiling that was requested, so a truncation error can
+                name the number the caller has to raise.
+
+        Raises:
+            ProviderError: if the response carries no usable text.
+        """
+        stop_reason = getattr(response, "stop_reason", None)
+        request_id = getattr(response, "_request_id", None)
+
+        if stop_reason == "refusal":
+            # A safety refusal is a real outcome, not an error. It is recorded as
+            # the assistant's reply so the judge can grade it - a model that
+            # refuses an adversarial probe has passed, not errored.
+            details = getattr(response, "stop_details", None)
+            category = getattr(details, "category", None) if details else None
+            return f"[model declined to respond; category={category}]"
+
+        blocks = getattr(response, "content", None) or ()
+        text = "".join(b.text for b in blocks if getattr(b, "type", None) == "text").strip()
+        if text:
+            return text
+
+        if stop_reason == "max_tokens":
+            raise ProviderError(
+                f"{model} hit the {max_tokens}-token ceiling before emitting any text. "
+                "Models that think by default spend this budget on thinking first - "
+                "raise --max-tokens",
+                model=model,
+                request_id=request_id,
+            )
+        raise ProviderError(
+            f"{model} returned no text content (stop_reason={stop_reason})",
+            model=model,
+            request_id=request_id,
         )
 
     def complete(
@@ -130,29 +195,17 @@ class AnthropicProvider:
                 model=model,
                 retryable=exc.status_code >= 500,
             ) from exc
+        except anthropic.APITimeoutError as exc:
+            raise ProviderError(
+                f"request timed out after {self.timeout:g}s", model=model, retryable=True
+            ) from exc
         except anthropic.APIConnectionError as exc:
             raise ProviderError(f"connection failure: {exc}", model=model, retryable=True) from exc
         except TypeError as exc:  # the SDK's credential resolution failure path
             raise ProviderError(f"request could not be built: {exc}", model=model) from exc
 
         elapsed_ms = int((time.monotonic() - started) * 1000)
-
-        if response.stop_reason == "refusal":
-            # A safety refusal is a real outcome, not an error. It is recorded as
-            # the assistant's reply so the judge can grade it - a model that
-            # refuses an adversarial probe has passed, not errored.
-            details = getattr(response, "stop_details", None)
-            category = getattr(details, "category", None) if details else None
-            text = f"[model declined to respond; category={category}]"
-        else:
-            text = "".join(block.text for block in response.content if block.type == "text").strip()
-
-        if not text:
-            raise ProviderError(
-                f"{model} returned no text content (stop_reason={response.stop_reason})",
-                model=model,
-                request_id=getattr(response, "_request_id", None),
-            )
+        text = self._reply_text(response, model=model, max_tokens=max_tokens)
 
         return Completion(
             text=text,

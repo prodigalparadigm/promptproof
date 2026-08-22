@@ -168,6 +168,11 @@ def test_empty_content_is_an_error():
             "connection failure",
             True,
         ),
+        (
+            anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com")),
+            r"timed out after 120s",
+            True,
+        ),
     ],
 )
 def test_errors_are_mapped_specifically(exc, match, retryable):
@@ -176,3 +181,72 @@ def test_errors_are_mapped_specifically(exc, match, retryable):
         _call(provider)
     assert info.value.model == "claude-opus-5"
     assert info.value.retryable is retryable
+
+
+def test_a_timeout_is_reported_separately_from_a_connection_failure():
+    """APITimeoutError subclasses APIConnectionError, so ordering is load-bearing."""
+    assert issubclass(anthropic.APITimeoutError, anthropic.APIConnectionError)
+    provider, _ = _provider(
+        anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com"))
+    )
+    provider.timeout = 12.5
+    with pytest.raises(ProviderError, match=r"timed out after 12\.5s") as info:
+        _call(provider)
+    assert info.value.retryable is True
+
+
+def test_truncation_before_any_text_names_the_ceiling_to_raise():
+    """Thinking-by-default models spend max_tokens before emitting text.
+
+    The generic "no text content" message sends a reader looking for a broken
+    model; the real fix is a bigger ceiling, so the error says so.
+    """
+    provider, _ = _provider(_message(text="", stop_reason="max_tokens"))
+    with pytest.raises(ProviderError, match="hit the 1024-token ceiling") as info:
+        provider.complete(
+            model="claude-opus-5",
+            system="s",
+            messages=[Message("user", "hi")],
+            max_tokens=1024,
+        )
+    assert "--max-tokens" in str(info.value)
+    assert info.value.request_id == "req_test"
+
+
+def test_a_response_with_no_content_at_all_is_still_an_error():
+    provider, _ = _provider(_message(text="", stop_reason="end_turn"))
+    with pytest.raises(ProviderError, match="returned no text content"):
+        _call(provider)
+
+
+def test_thinking_blocks_are_skipped_when_unwrapping_text():
+    """Responses may carry non-text blocks; only text blocks are the reply."""
+    response = _message(text="the answer")
+    response.content = [
+        SimpleNamespace(type="thinking", thinking="..."),
+        *response.content,
+    ]
+    provider, _ = _provider(response)
+    assert _call(provider).text == "the answer"
+
+
+def test_timeout_and_retry_settings_reach_the_sdk_client():
+    provider = AnthropicProvider(api_key="test-key", timeout=7.5, max_retries=1)
+    assert provider.timeout == 7.5
+    assert provider.max_retries == 1
+    assert provider._client.timeout == 7.5
+    assert provider._client.max_retries == 1
+
+
+def test_federated_credentials_are_not_mistaken_for_no_credentials(monkeypatch):
+    """WIF resolves at request time and leaves nothing on the client to check."""
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    for name in (
+        "ANTHROPIC_FEDERATION_RULE_ID",
+        "ANTHROPIC_ORGANIZATION_ID",
+        "ANTHROPIC_SERVICE_ACCOUNT_ID",
+    ):
+        monkeypatch.setenv(name, "set-by-the-workload-identity-provider")
+    provider = AnthropicProvider()
+    assert provider._client.api_key is None

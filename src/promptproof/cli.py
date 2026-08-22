@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from .cases import AXES, generate_cases
+from .constants import DEFAULT_JUDGE_MODEL, JUDGE_MODEL_ENV_VAR
 from .drift import DRIFT_STRATEGIES
 from .errors import PromptProofError
 from .providers.base import ModelProvider
@@ -30,17 +32,42 @@ from .spec import BehaviorSpec, load_spec
 #: compares the best and worst performer, and a reader scanning the table should
 #: see the degradation top to bottom.
 DEFAULT_MODELS: tuple[str, ...] = ("claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5")
-DEFAULT_JUDGE_MODEL = "claude-opus-5"
+
+#: Generous on purpose. Models that think by default draw thinking tokens from
+#: this same ceiling, and a reply truncated before its first text block costs a
+#: whole case. Lower it when testing a model that does not think.
+DEFAULT_MAX_TOKENS = 4096
 
 
-def _make_provider(kind: str, spec: BehaviorSpec) -> ModelProvider:
+def _make_provider(kind: str, args: argparse.Namespace, spec: BehaviorSpec) -> ModelProvider:
     if kind == "stub":
         return StubProvider(spec)
     if kind == "anthropic":
         from .providers.anthropic_provider import AnthropicProvider  # noqa: PLC0415
 
-        return AnthropicProvider()
+        return AnthropicProvider(timeout=args.timeout, max_retries=args.max_retries)
     raise PromptProofError(f"unknown provider: {kind!r}")
+
+
+def _positive_int(raw: str) -> int:
+    value = int(raw)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be >= 1, got {value}")
+    return value
+
+
+def _positive_float(raw: str) -> float:
+    value = float(raw)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"must be > 0, got {value}")
+    return value
+
+
+def _fraction(raw: str) -> float:
+    value = float(raw)
+    if not 0.0 <= value <= 1.0:
+        raise argparse.ArgumentTypeError(f"must be a fraction between 0 and 1, got {value}")
+    return value
 
 
 def _progress(model: str, result: CaseResult) -> None:
@@ -50,7 +77,7 @@ def _progress(model: str, result: CaseResult) -> None:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     spec = load_spec(args.spec)
-    provider = _make_provider(args.provider, spec)
+    provider = _make_provider(args.provider, args, spec)
     models = tuple(args.model) if args.model else DEFAULT_MODELS
 
     harness = Harness(
@@ -108,6 +135,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 "instruction_id": case.instruction_id,
                 "expectation": case.expectation,
                 "rationale": case.rationale,
+                "metadata": dict(case.metadata),
                 "turns": [
                     {"text": t.text, "intent": t.intent, "escalation": t.escalation} for t in case.turns
                 ],
@@ -155,23 +183,44 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"model id to test; repeatable. Default: {', '.join(DEFAULT_MODELS)}",
     )
     run.add_argument("--provider", default="stub", choices=("stub", "anthropic"))
-    run.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
-    run.add_argument("--cases-per-axis", type=int, default=6)
-    run.add_argument("--max-tokens", type=int, default=1024, help="ceiling for subject replies")
-    run.add_argument("--concurrency", type=int, default=1)
+    run.add_argument(
+        "--judge-model",
+        default=os.environ.get(JUDGE_MODEL_ENV_VAR) or DEFAULT_JUDGE_MODEL,
+        help=f"judge model id; also settable via ${JUDGE_MODEL_ENV_VAR} (default: {DEFAULT_JUDGE_MODEL})",
+    )
+    run.add_argument("--cases-per-axis", type=_positive_int, default=6)
+    run.add_argument(
+        "--max-tokens",
+        type=_positive_int,
+        default=DEFAULT_MAX_TOKENS,
+        help=f"ceiling for subject replies (default: {DEFAULT_MAX_TOKENS})",
+    )
+    run.add_argument("--concurrency", type=_positive_int, default=1)
+    run.add_argument(
+        "--timeout",
+        type=_positive_float,
+        default=120.0,
+        help="per-request timeout in seconds for a live provider (default: 120)",
+    )
+    run.add_argument(
+        "--max-retries",
+        type=_positive_int,
+        default=3,
+        help="retries a live provider makes on 408/409/429/5xx and connection errors (default: 3)",
+    )
     run.add_argument("--no-rewrites", action="store_true", help="skip suggested instruction rewrites")
     run.add_argument("--out", help="directory to write report.md and report.json into")
     run.add_argument("--quiet", action="store_true", help="suppress per-case progress on stderr")
     run.add_argument(
         "--fail-under",
-        type=float,
+        type=_fraction,
         help="exit 1 if any model's pass rate is below this fraction (e.g. 0.9)",
     )
     run.set_defaults(func=_cmd_run)
 
     gen = sub.add_parser("generate", help="print the synthetic cases without running them")
     gen.add_argument("--spec", required=True)
-    gen.add_argument("--cases-per-axis", type=int, default=6)
+    gen.add_argument("--cases-per-axis", type=_positive_int, default=6)
     gen.add_argument("--json", action="store_true")
     gen.set_defaults(func=_cmd_generate)
 

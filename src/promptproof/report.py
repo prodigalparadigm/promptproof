@@ -335,7 +335,12 @@ def render_markdown(report: Report) -> str:
 
 
 def render_json(report: Report) -> str:
-    """Render the report as JSON for downstream tooling or CI gating."""
+    """Render the report as JSON for downstream tooling or CI gating.
+
+    Carries the per-case timing and token counts the markdown leaves out: they
+    are what a caller needs to estimate the cost of the next run, and nobody
+    reads them out of a prose report.
+    """
     run = report.run
     payload = {
         "spec": run.spec.name,
@@ -344,6 +349,11 @@ def render_json(report: Report) -> str:
         "judge_model": run.judge_model,
         "models": list(run.models),
         "case_count": len(run.cases),
+        "totals": {
+            "duration_ms": sum(r.duration_ms for r in run.results),
+            "input_tokens": sum(r.input_tokens for r in run.results),
+            "output_tokens": sum(r.output_tokens for r in run.results),
+        },
         "observations": list(report.observations),
         "summaries": [
             {
@@ -367,6 +377,9 @@ def render_json(report: Report) -> str:
                 "strategy": r.case.strategy,
                 "instruction_id": r.case.instruction_id,
                 "status": r.status,
+                "duration_ms": r.duration_ms,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
                 "turns": len(r.case.turns),
                 "turns_held": r.turns_held,
                 "final_input": r.case.final_input,

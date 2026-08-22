@@ -17,7 +17,18 @@ import pytest
 
 from promptproof.cli import main
 
-EXAMPLE_SPEC = Path(__file__).resolve().parents[1] / "examples" / "support_agent" / "spec.toml"
+ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE_SPEC = ROOT / "examples" / "support_agent" / "spec.toml"
+SAMPLE_REPORT = ROOT / "examples" / "support_agent" / "sample-report.md"
+README = ROOT / "README.md"
+
+#: The flags the committed sample report was generated with.
+SAMPLE_ARGS = ["--cases-per-axis", "4"]
+
+
+def _without_timestamp(markdown: str) -> str:
+    """Drop the one line that legitimately differs between runs."""
+    return "\n".join(line for line in markdown.splitlines() if not line.startswith("Provider "))
 
 
 @pytest.fixture()
@@ -186,3 +197,97 @@ def test_offline_path_never_imports_the_anthropic_sdk():
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip().endswith("clean")
+
+
+def test_judge_model_can_be_set_by_environment(tmp_path, monkeypatch, no_network, no_credentials):
+    """The variable documented in .env.example has to actually do something."""
+    monkeypatch.setenv("PROMPTPROOF_JUDGE_MODEL", "claude-sonnet-5")
+    out = tmp_path / "env"
+    argv = ["run", "--spec", str(EXAMPLE_SPEC), "--quiet", "--cases-per-axis", "1", "--out", str(out)]
+    assert main(argv) == 0
+    payload = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert payload["judge_model"] == "claude-sonnet-5"
+
+    # an explicit flag still wins over the environment
+    out2 = tmp_path / "flag"
+    assert main([*argv[:-1], str(out2), "--judge-model", "claude-opus-5"]) == 0
+    payload2 = json.loads((out2 / "report.json").read_text(encoding="utf-8"))
+    assert payload2["judge_model"] == "claude-opus-5"
+
+
+def test_judge_model_falls_back_to_the_default_when_unset(tmp_path, monkeypatch, no_network):
+    monkeypatch.delenv("PROMPTPROOF_JUDGE_MODEL", raising=False)
+    out = tmp_path / "default"
+    argv = ["run", "--spec", str(EXAMPLE_SPEC), "--quiet", "--cases-per-axis", "1", "--out", str(out)]
+    assert main(argv) == 0
+    payload = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert payload["judge_model"] == "claude-opus-5"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        ["--cases-per-axis", "0"],
+        ["--concurrency", "0"],
+        ["--max-tokens", "-5"],
+        ["--fail-under", "1.5"],
+        ["--timeout", "0"],
+    ],
+)
+def test_nonsense_arguments_are_rejected_before_any_work_happens(bad, no_network):
+    """argparse exits 2, which is the documented 'configuration problem' code."""
+    with pytest.raises(SystemExit) as info:
+        main(["run", "--spec", str(EXAMPLE_SPEC), *bad])
+    assert info.value.code == 2
+
+
+def test_json_report_carries_timing_and_token_totals(tmp_path, no_network, no_credentials):
+    """Numbers the runner already collects, made available to a cost estimate."""
+    out = tmp_path / "totals"
+    argv = ["run", "--spec", str(EXAMPLE_SPEC), "--quiet", "--cases-per-axis", "2", "--out", str(out)]
+    assert main(argv) == 0
+    payload = json.loads((out / "report.json").read_text(encoding="utf-8"))
+
+    totals = payload["totals"]
+    assert totals["input_tokens"] == sum(r["input_tokens"] for r in payload["results"])
+    assert totals["output_tokens"] == sum(r["output_tokens"] for r in payload["results"])
+    assert totals["output_tokens"] > 0
+    assert all(r["duration_ms"] >= 0 for r in payload["results"])
+
+
+def test_generate_json_exposes_case_metadata(capsys, no_network):
+    assert main(["generate", "--spec", str(EXAMPLE_SPEC), "--cases-per-axis", "2", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    drift = [c for c in payload if c["axis"] == "multi_turn_drift"]
+    assert drift
+    for case in drift:
+        assert int(case["metadata"]["turns"]) == len(case["turns"])
+        assert case["metadata"]["severity"] in ("hard", "soft")
+
+
+def test_the_committed_sample_report_is_what_the_code_still_produces(tmp_path, no_network):
+    """A stale example is a lie about the tool, and it rots silently.
+
+    Regenerating it here means the numbers quoted in the README cannot drift
+    away from the harness without a test going red.
+    """
+    out = tmp_path / "regen"
+    argv = ["run", "--spec", str(EXAMPLE_SPEC), "--quiet", "--out", str(out), *SAMPLE_ARGS]
+    assert main(argv) == 0
+
+    regenerated = _without_timestamp((out / "report.md").read_text(encoding="utf-8"))
+    committed = _without_timestamp(SAMPLE_REPORT.read_text(encoding="utf-8"))
+    assert regenerated == committed, (
+        "examples/support_agent/sample-report.md is out of date; regenerate it with "
+        f"promptproof run --spec examples/support_agent/spec.toml {' '.join(SAMPLE_ARGS)} --out out/"
+    )
+
+
+def test_the_readme_quotes_the_sample_report_verbatim():
+    """The one table a 60-second reader looks at has to be the real one."""
+    readme = README.read_text(encoding="utf-8")
+    sample = SAMPLE_REPORT.read_text(encoding="utf-8")
+    rows = [line for line in sample.splitlines() if line.startswith("| `claude-")]
+    assert len(rows) == 3
+    for row in rows:
+        assert row in readme, f"README summary table is out of sync with the sample report: {row}"
