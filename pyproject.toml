@@ -26,13 +26,15 @@ dependencies = []
 live = ["anthropic>=1.0,<2"]
 # YAML spec files (TOML specs work with no extra dependency via stdlib tomllib).
 yaml = ["PyYAML>=6.0"]
-dev = ["pytest>=8.0", "PyYAML>=6.0", "ruff>=0.6"]
+# Floors are the oldest releases this repository was actually checked against.
+dev = ["pytest>=8.0", "PyYAML>=6.0", "ruff>=0.13", "mypy>=1.12", "types-PyYAML>=6.0"]
 
 [project.scripts]
 promptproof = "promptproof.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/comelyhunger/promptproof"
+Source = "https://github.com/comelyhunger/promptproof"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/promptproof"]
@@ -55,3 +57,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN", "SLF", "PLR", "PLC0415", "S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/promptproof"]
+# The test suite deliberately builds malformed specs and providers to prove the
+# harness refuses them, so it is linted but not type-checked under strict mode.

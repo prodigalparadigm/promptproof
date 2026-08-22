@@ -16,24 +16,25 @@ single turn. You find out from a customer, not from a test.
 
 ## Quickstart
 
-Offline mode needs no API key and no network. It is the default.
+Requires Python 3.12. Offline mode needs no API key and no network. It is the default.
 
 ```bash
 git clone <this repo> && cd promptproof
-uv venv && uv pip install -e ".[dev]"
+uv venv --python 3.12 && source .venv/bin/activate
+uv pip install -e ".[dev]"
+
+python -m pytest                        # 155 tests, no network, no credentials
+ruff check . && ruff format --check .   # rule set pinned in pyproject.toml
+mypy                                    # strict, src only
 
 # See the axes and the multi-turn drift strategies
-.venv/bin/promptproof axes
+promptproof axes
 
 # Inspect the generated cases without running anything
-.venv/bin/promptproof generate --spec examples/support_agent/spec.toml
+promptproof generate --spec examples/support_agent/spec.toml
 
 # Full offline run across three simulated model tiers
-.venv/bin/promptproof run --spec examples/support_agent/spec.toml --out out/
-
-# Tests and lint
-.venv/bin/pytest
-.venv/bin/ruff check src tests
+promptproof run --spec examples/support_agent/spec.toml --out out/
 ```
 
 A live run needs the optional SDK and a key:
@@ -41,7 +42,7 @@ A live run needs the optional SDK and a key:
 ```bash
 uv pip install -e ".[live]"
 export ANTHROPIC_API_KEY=sk-ant-...        # or `ant auth login`
-.venv/bin/promptproof run \
+promptproof run \
   --spec examples/support_agent/spec.toml \
   --provider anthropic \
   --model claude-opus-5 \
@@ -204,4 +205,4 @@ between model tiers.
 
 ## License
 
-MIT. Copyright (c) 2026 Kathleen Bartin.
+MIT. Copyright (c) 2026 Kathleen Bartin. See [LICENSE](LICENSE).

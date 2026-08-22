@@ -390,5 +390,5 @@ def _oracle_verdict(instruction: Instruction, replies: list[tuple[int, str]]) ->
     )
 
 
-def _json_dump(payload: dict) -> str:
+def _json_dump(payload: dict[str, object]) -> str:
     return json.dumps(payload, ensure_ascii=False)

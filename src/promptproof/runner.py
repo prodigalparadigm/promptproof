@@ -231,8 +231,8 @@ class Harness:
         """
         if not models:
             raise ValueError("at least one model is required")
-        case_tuple = tuple(cases) if cases is not None else generate_cases(
-            self.spec, cases_per_axis=cases_per_axis
+        case_tuple = (
+            tuple(cases) if cases is not None else generate_cases(self.spec, cases_per_axis=cases_per_axis)
         )
         if not case_tuple:
             raise ValueError("the spec generated no cases - declare boundaries or behaviors")

@@ -282,9 +282,7 @@ def _render_failure(run: RunResult, result: CaseResult) -> list[str]:
     out.append(f"- **Input that broke it**: {_fence(result.case.final_input, 400)}")
     if verdict.evidence:
         out.append(f"- **Evidence**: {_fence(verdict.evidence, 300)}")
-    out.append(
-        f"- **Judge ({verdict.judge_model}, confidence {verdict.confidence})**: {verdict.reasoning}"
-    )
+    out.append(f"- **Judge ({verdict.judge_model}, confidence {verdict.confidence})**: {verdict.reasoning}")
     if result.rewrite and result.rewrite.available:
         out += ["- **Suggested rewrite**:", "", "  > " + result.rewrite.suggested.replace("\n", "\n  > "), ""]
         if result.rewrite.why:

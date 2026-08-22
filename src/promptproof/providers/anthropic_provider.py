@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Sequence
+from typing import Any, cast
 
 from ..conversation import Message
 from ..errors import ProviderError
@@ -175,7 +176,12 @@ class AnthropicProvider:
                 model=model,
                 max_tokens=max_tokens,
                 system=system,
-                messages=[m.as_dict() for m in messages],
+                # The SDK wants ``list[MessageParam]``, a TypedDict whose ``role``
+                # is a Literal. ``as_dict`` returns the same shape but widens
+                # ``role`` to ``str``; ``Message.role`` is already declared as that
+                # Literal, so the cast restores information the dict lost rather
+                # than asserting anything new.
+                messages=cast("Any", [m.as_dict() for m in messages]),
             )
         except anthropic.NotFoundError as exc:
             raise ProviderError(

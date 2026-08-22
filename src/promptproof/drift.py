@@ -234,6 +234,7 @@ DRIFT_STRATEGIES: tuple[DriftStrategy, ...] = (
     ),
 )
 
+
 def build_drift_ladder(strategy: DriftStrategy, *, spec: BehaviorSpec, topic: str) -> tuple[Turn, ...]:
     """Build one drift ladder.
 

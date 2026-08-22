@@ -186,7 +186,7 @@ def _parse_instruction(
         id=_require_str(raw, "id", where),
         text=_require_str(raw, "instruction", where),
         kind=kind,
-        severity=severity,  # type: ignore[arg-type]
+        severity=severity,
         topics=_str_tuple(raw, "topics", where),
         required_markers=_str_tuple(raw, "required_markers", where),
         forbidden_markers=_str_tuple(raw, "forbidden_markers", where),

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from string import Template
+from typing import Any
 
 from .cases import TestCase
 from .constants import DEFAULT_JUDGE_MODEL, JUDGE_SENTINEL
@@ -107,7 +108,7 @@ def render_judge_prompt(spec: BehaviorSpec, case: TestCase, replies: list[str]) 
     return system, user
 
 
-def extract_json_object(text: str) -> dict:  # noqa: PLR0912 - a character scanner
+def extract_json_object(text: str) -> dict[str, Any]:  # noqa: PLR0912 - a character scanner
     """Pull the first JSON object out of a model response.
 
     Models wrap JSON in code fences, prefix it with "Here is the verdict:", or

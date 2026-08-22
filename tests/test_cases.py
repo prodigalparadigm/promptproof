@@ -50,10 +50,7 @@ def test_scope_axes_target_the_scope_instruction(example_spec):
     for axis in ("edge_of_scope", "out_of_scope"):
         cases = generate_cases(example_spec, cases_per_axis=4, axes=(axis,))
         assert {c.instruction_id for c in cases} == {"scope:stay-in-scope"}
-        assert all(
-            any(topic in c.turns[0].text for topic in example_spec.out_of_scope_topics)
-            for c in cases
-        )
+        assert all(any(topic in c.turns[0].text for topic in example_spec.out_of_scope_topics) for c in cases)
 
 
 def test_boundary_and_adversarial_axes_target_hard_boundaries(example_spec):

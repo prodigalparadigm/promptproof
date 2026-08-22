@@ -88,9 +88,7 @@ def test_markdown_marks_the_breaking_turn_in_drift_transcripts(example_spec, stu
 
 
 def test_markdown_handles_a_clean_run(example_spec, stub):
-    run = Harness(example_spec, stub, judge_model="claude-opus-5").run(
-        ("claude-opus-5",), cases_per_axis=3
-    )
+    run = Harness(example_spec, stub, judge_model="claude-opus-5").run(("claude-opus-5",), cases_per_axis=3)
     markdown = render_markdown(build_report(run))
     assert "## Failures (0)" in markdown
     assert "No instruction was broken" in markdown

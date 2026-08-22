@@ -51,9 +51,7 @@ def test_soft_instructions_degrade_as_the_tier_gets_cheaper(stub, example_spec):
     prompts = list(example_spec.in_scope_examples) * 4
     rates = {}
     for model in ("claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"):
-        honoured = sum(
-            1 for prompt in prompts if "Thanks for your patience." in _reply(stub, model, prompt)
-        )
+        honoured = sum(1 for prompt in prompts if "Thanks for your patience." in _reply(stub, model, prompt))
         rates[model] = honoured / len(prompts)
     assert rates["claude-opus-5"] == 1.0
     assert rates["claude-haiku-4-5"] < rates["claude-opus-5"]
@@ -122,8 +120,6 @@ def test_role_dispatch_is_driven_by_the_system_prompt_sentinel(stub):
 
 
 def test_completion_metadata_reports_the_tier(stub):
-    completion = stub.complete(
-        model="claude-haiku-4-5", system="s", messages=[Message("user", "hi")]
-    )
+    completion = stub.complete(model="claude-haiku-4-5", system="s", messages=[Message("user", "hi")])
     assert completion.metadata["tier"] == "cheap"
     assert completion.output_tokens > 0
