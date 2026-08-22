@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -101,8 +101,9 @@ class Harness:
             uninterpretable.
         max_tokens: Ceiling for subject replies.
         concurrency: Cases are independent, so they may be played in parallel.
-            Results are re-sorted into generation order afterwards, so output is
-            identical at any concurrency.
+            Results are re-sorted into generation order afterwards, so the report
+            is identical at any concurrency; only the order of ``on_result``
+            callbacks follows completion.
         suggest_rewrites: Whether to ask for a replacement instruction on each
             distinct failing instruction.
     """
@@ -127,6 +128,7 @@ class Harness:
         self.max_tokens = max_tokens
         self.concurrency = concurrency
         self.suggest_rewrites = suggest_rewrites
+        self.provider_name: str = getattr(provider, "name", type(provider).__name__)
 
     def play(self, case: TestCase, model: str) -> CaseResult:
         """Run one case against one model and judge the result.
@@ -134,7 +136,23 @@ class Harness:
         A provider failure mid-ladder is recorded as an error together with the
         partial transcript, and the case is not judged. Grading half a
         conversation would silently turn an outage into a pass.
+
+        Never raises. One bad case must not take a matrix of hundreds with it,
+        and an unexpected exception from a third-party provider is exactly as
+        unmeasured as a declared :class:`ProviderError` - so it is recorded the
+        same way, as ``error``, and never as ``pass`` or ``fail``.
         """
+        try:
+            return self._play(case, model)
+        except Exception as exc:  # noqa: BLE001 - a provider may raise anything
+            return CaseResult(
+                case=case,
+                model=model,
+                replies=(),
+                error=f"unexpected {type(exc).__name__} from provider {self.provider_name}: {exc}",
+            )
+
+    def _play(self, case: TestCase, model: str) -> CaseResult:
         started = time.monotonic()
         history: list[Message] = []
         replies: list[str] = []
@@ -231,7 +249,7 @@ class Harness:
             spec=self.spec,
             models=tuple(models),
             judge_model=self.judge_model,
-            provider_name=getattr(self.provider, "name", type(self.provider).__name__),
+            provider_name=self.provider_name,
             results=tuple(collected),
             cases=case_tuple,
         )
@@ -254,11 +272,13 @@ class Harness:
         with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
             futures = {pool.submit(self.play, case, model): index for index, case in enumerate(cases)}
             indexed: list[tuple[int, CaseResult]] = []
-            for future, index in futures.items():
+            for future in as_completed(futures):
+                # play() swallows its own exceptions, so result() cannot raise
+                # here and one straggler cannot abandon the rest of the pool.
                 result = future.result()
                 if on_result:
                     on_result(model, result)
-                indexed.append((index, result))
+                indexed.append((futures[future], result))
         indexed.sort(key=lambda pair: pair[0])
         return [result for _, result in indexed]
 

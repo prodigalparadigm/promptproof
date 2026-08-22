@@ -103,3 +103,42 @@ def test_system_prompt_file_is_resolved_relative_to_spec(tmp_path, minimal_spec_
     minimal_spec_mapping["system_prompt_file"] = "prompt.md"
     spec = build_spec(minimal_spec_mapping, base_dir=tmp_path)
     assert spec.system_prompt.startswith("You are a test assistant")
+
+
+def test_a_hand_built_spec_without_a_scope_instruction_says_so():
+    """Constructing BehaviorSpec directly is legal; using it half-built is not."""
+    from promptproof.spec import BehaviorSpec, Instruction, Persona
+
+    spec = BehaviorSpec(
+        name="hand-built",
+        system_prompt="You are a test assistant.",
+        persona=Persona(role="tester"),
+        hard_boundaries=(Instruction(id="x", text="Never x.", kind="hard_boundary"),),
+        required_behaviors=(),
+        in_scope_examples=(),
+        out_of_scope_topics=(),
+    )
+    with pytest.raises(SpecError, match="no scope instruction"):
+        _ = spec.scope_instruction
+
+
+def test_malformed_yaml_names_the_file(tmp_path):
+    pytest.importorskip("yaml")
+    path = tmp_path / "spec.yaml"
+    path.write_text("name: x\n  bad: [indent\n", encoding="utf-8")
+    with pytest.raises(SpecError, match="could not parse YAML spec"):
+        load_spec(path)
+
+
+def test_a_yaml_spec_that_is_not_a_mapping_is_rejected(tmp_path):
+    pytest.importorskip("yaml")
+    path = tmp_path / "spec.yaml"
+    path.write_text("- just\n- a list\n", encoding="utf-8")
+    with pytest.raises(SpecError, match="must be a mapping"):
+        load_spec(path)
+
+
+def test_a_directory_where_a_spec_should_be_is_a_spec_error(tmp_path):
+    (tmp_path / "spec.toml").mkdir()
+    with pytest.raises(SpecError, match="not found"):
+        load_spec(tmp_path / "spec.toml")

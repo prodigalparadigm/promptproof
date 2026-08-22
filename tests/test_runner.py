@@ -180,3 +180,54 @@ def test_rejects_empty_model_list_and_bad_concurrency(example_spec, stub):
         Harness(example_spec, stub, judge_model="claude-opus-5").run(())
     with pytest.raises(ValueError, match="concurrency"):
         Harness(example_spec, stub, judge_model="claude-opus-5", concurrency=0)
+
+
+class ExplodingProvider:
+    """Raises something the provider protocol never promised."""
+
+    name = "exploding"
+
+    def __init__(self, inner, *, explode_on: str) -> None:
+        self.inner = inner
+        self.explode_on = explode_on
+
+    def complete(self, *, model, system, messages, max_tokens=4096):
+        if self.explode_on in messages[-1].content:
+            raise RuntimeError("segfault in someone else's client library")
+        return self.inner.complete(model=model, system=system, messages=messages, max_tokens=max_tokens)
+
+
+def test_an_undeclared_provider_exception_is_an_error_not_a_crash(example_spec, stub):
+    """A third-party provider can raise anything; one case must not kill the matrix."""
+    provider = ExplodingProvider(stub, explode_on="warranty")
+    run = Harness(example_spec, provider, judge_model="claude-opus-5").run(
+        ("claude-opus-5",), cases_per_axis=6
+    )
+
+    errored = run.errors
+    assert errored, "the exploding case should have been recorded"
+    assert all(r.status == "error" for r in errored)
+    assert any("unexpected RuntimeError" in r.error and "exploding" in r.error for r in errored)
+    # and the rest of the matrix still produced verdicts
+    assert [r for r in run.results if r.status in ("pass", "fail")]
+
+
+def test_an_undeclared_exception_under_concurrency_still_isolates(example_spec, stub):
+    provider = ExplodingProvider(stub, explode_on="warranty")
+    run = Harness(example_spec, provider, judge_model="claude-opus-5", concurrency=4).run(
+        ("claude-opus-5",), cases_per_axis=6
+    )
+    assert run.errors
+    assert len(run.results) == len(run.cases)
+
+
+def test_progress_hook_fires_for_errored_cases_too(example_spec, stub):
+    seen: list[str] = []
+    provider = ExplodingProvider(stub, explode_on="warranty")
+    run = Harness(example_spec, provider, judge_model="claude-opus-5").run(
+        ("claude-opus-5",),
+        cases_per_axis=6,
+        on_result=lambda _model, result: seen.append(result.status),
+    )
+    assert len(seen) == len(run.results)
+    assert "error" in seen

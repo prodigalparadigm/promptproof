@@ -110,11 +110,22 @@ class BehaviorSpec:
     out_of_scope_topics: tuple[str, ...]
     description: str = ""
     source_path: Path | None = None
-    _scope_instruction: Instruction = field(repr=False, default=None)  # type: ignore[assignment]
+    _scope_instruction: Instruction | None = field(repr=False, default=None)
 
     @property
     def scope_instruction(self) -> Instruction:
-        """The synthesised instruction covering "stay inside your scope"."""
+        """The synthesised instruction covering "stay inside your scope".
+
+        Raises:
+            SpecError: if this spec was constructed directly rather than through
+                :func:`build_spec`, which is the only thing that synthesises it.
+                Better a named error here than a ``None`` that surfaces three
+                modules away as an ``AttributeError``.
+        """
+        if self._scope_instruction is None:
+            raise SpecError(
+                "this BehaviorSpec has no scope instruction; build it with build_spec() or load_spec()"
+            )
         return self._scope_instruction
 
     def instructions(self) -> tuple[Instruction, ...]:
@@ -210,7 +221,10 @@ def _load_mapping(path: Path) -> dict[str, Any]:
                 "YAML specs require the optional 'yaml' extra: "
                 "pip install 'promptproof[yaml]' (or use a .toml spec, which needs nothing)"
             ) from exc
-        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        try:
+            loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise SpecError(f"{path}: could not parse YAML spec ({exc})") from exc
         if not isinstance(loaded, dict):
             raise SpecError(f"{path}: top level of a YAML spec must be a mapping")
         return loaded
@@ -235,9 +249,7 @@ def load_spec(path: str | Path) -> BehaviorSpec:
         raise SpecError(f"spec file not found: {path}")
     try:
         data = _load_mapping(path)
-    except SpecError:
-        raise
-    except Exception as exc:  # malformed TOML/YAML
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as exc:
         raise SpecError(f"{path}: could not parse spec ({exc})") from exc
     return build_spec(data, base_dir=path.parent, source_path=path)
 
