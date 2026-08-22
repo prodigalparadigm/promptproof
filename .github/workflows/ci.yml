@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install without the optional SDK
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Lint
+        run: uvx ruff check src tests
+
+      # The default path must work with the SDK absent: the SDK tests skip and
+      # the offline suite still has to be green.
+      - name: Test (offline only)
+        run: python -m pytest -rs
+
+      - name: Install the optional live SDK
+        run: uv pip install --system -e ".[live]"
+
+      # With the SDK present the provider's error mapping tests un-skip.
+      - name: Test (including SDK error mapping)
+        run: python -m pytest

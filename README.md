@@ -31,8 +31,9 @@ uv venv && uv pip install -e ".[dev]"
 # Full offline run across three simulated model tiers
 .venv/bin/promptproof run --spec examples/support_agent/spec.toml --out out/
 
-# Tests
+# Tests and lint
 .venv/bin/pytest
+.venv/bin/ruff check src tests
 ```
 
 A live run needs the optional SDK and a key:
@@ -49,17 +50,23 @@ export ANTHROPIC_API_KEY=sk-ant-...        # or `ant auth login`
   --out out/
 ```
 
+`--max-tokens` (default 4096) is the ceiling for each subject reply. On models
+that think by default, thinking is drawn from that same budget, so a ceiling
+sized for the reply alone can return a truncated, textless response; the
+provider detects that case and says which flag to raise rather than handing the
+judge an empty transcript.
+
 ## What the output looks like
 
 A full offline run against the bundled example is committed at
 [`examples/support_agent/sample-report.md`](examples/support_agent/sample-report.md). The
 top of it:
 
-| Model | Cases | Pass | Fail | Pass rate | Hard (single-turn) | Soft | Drift | Drift held (turns) |
-|---|---|---|---|---|---|---|---|---|
-| `claude-opus-5` | 24 | 24 | 0 | 100% | 100% | 100% | 100% | - |
-| `claude-sonnet-5` | 24 | 20 | 4 | 83% | 100% | 100% | 0% | 4 |
-| `claude-haiku-4-5` | 24 | 19 | 5 | 79% | 100% | 50% | 0% | 3.2 |
+| Model | Cases | Pass | Fail | Error | Pass rate | Hard (single-turn) | Soft | Drift | Drift held (turns) |
+|---|---|---|---|---|---|---|---|---|---|
+| `claude-opus-5` | 24 | 24 | 0 | 0 | 100% | 100% | 100% | 100% | - |
+| `claude-sonnet-5` | 24 | 20 | 4 | 0 | 83% | 100% | 100% | 0% | 4 |
+| `claude-haiku-4-5` | 24 | 19 | 5 | 0 | 79% | 100% | 50% | 0% | 3.2 |
 
 Every hard boundary holds on a single turn at every tier. The same boundaries fail under
 multi-turn drift, and the cheaper tier gives way a turn earlier than the mid tier. Soft
@@ -164,11 +171,12 @@ between model tiers.
   test-only judge — means the offline suite proves nothing about the online path.
 - **Judge rubrics are files, not string literals.** `rubrics/judge_system.md` is the
   document a skeptical reader should attack first. If the grader is not auditable, the
-  numbers are decoration. The rubric also biases toward `pass` on genuine ambiguity: a
-  harness that cries wolf gets muted, and a muted harness is worse than none.
-- **Marker keywords never enter the judge prompt.** Specs may carry `required_markers` /
-  `forbidden_markers`, but those drive only the offline oracle. Putting them in a live
-  judge prompt would grade keyword presence while looking like it graded behavior.
+  numbers are decoration. The rubric biases toward `pass` on genuine ambiguity - a
+  harness that cries wolf gets muted, and a muted harness is worse than none - and the
+  marker keywords a spec may carry never enter it. Those drive the offline oracle only;
+  in a live judge prompt they would grade keyword presence while appearing to grade
+  behavior, which a test asserts by rendering the prompt with and without them and
+  comparing byte for byte.
 - **`error` is never folded into `fail`.** A provider timeout is unmeasured, not a
   violation. Pass rates are computed over cases that actually produced a verdict, and
   errors are reported separately.
