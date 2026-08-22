@@ -82,6 +82,16 @@ def test_marker_fields_do_not_change_the_judge_prompt(minimal_spec_mapping):
         )
 
 
+def test_judge_prompt_carries_the_declared_persona(example_spec):
+    """Scope verdicts are unanswerable without knowing the role being scoped."""
+    case = _case(example_spec, "out_of_scope")
+    _, user = render_judge_prompt(example_spec, case, ["I can't help with that."])
+    assert "<persona>" in user
+    assert example_spec.persona.role in user
+    assert example_spec.persona.tone in user
+    assert example_spec.persona.audience in user
+
+
 def test_judge_prompt_has_no_answer_key_section(example_spec):
     for case in generate_cases(example_spec, cases_per_axis=2):
         _, user = render_judge_prompt(example_spec, case, ["some reply"])

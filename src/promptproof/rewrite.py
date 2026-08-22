@@ -16,14 +16,14 @@ from dataclasses import dataclass
 from string import Template
 
 from .cases import TestCase
+from .constants import REWRITE_SENTINEL
 from .conversation import Message
 from .errors import JudgeError, ProviderError
 from .judge import _rubric, extract_json_object
 from .providers.base import ModelProvider
 from .spec import BehaviorSpec
 
-#: Marker the offline stub keys off to recognise a rewrite request.
-REWRITE_SENTINEL = "PROMPTPROOF-REWRITE-V1"
+__all__ = ["REWRITE_SENTINEL", "Rewrite", "Rewriter", "render_rewrite_prompt"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +71,7 @@ class Rewriter:
         provider: ModelProvider,
         *,
         model: str,
-        max_tokens: int = 1024,
+        max_tokens: int = 8192,
     ) -> None:
         self.provider = provider
         self.model = model

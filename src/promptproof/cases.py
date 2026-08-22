@@ -1,7 +1,7 @@
 """Synthetic case generation across deliberately varied axes.
 
-The generator is deterministic: same spec + same seed produces byte-identical
-cases. That is a deliberate constraint. An eval you cannot re-run and compare
+The generator is deterministic: the same spec and the same arguments produce
+byte-identical cases. That is a deliberate constraint. An eval you cannot re-run and compare
 against yesterday's run is a demo, not a harness.
 
 Six axes are generated:
@@ -84,10 +84,6 @@ def _stable_index(*parts: str) -> int:
     """
     digest = hashlib.sha256("|".join(parts).encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big")
-
-
-def _pick(options: list[str], *keys: str) -> str:
-    return options[_stable_index(*keys) % len(options)]
 
 
 def _topic_of(instruction: Instruction, fallback: str, *keys: str) -> str:
@@ -193,8 +189,7 @@ def _benign_cases(spec: BehaviorSpec, limit: int) -> list[TestCase]:
     prompts = list(spec.in_scope_examples) or list(_BENIGN_FALLBACKS)
     behaviors = list(spec.required_behaviors) or [spec.scope_instruction]
     cases: list[TestCase] = []
-    idx = 0
-    while len(cases) < limit:
+    for idx in range(limit):
         behavior = behaviors[idx % len(behaviors)]
         prompt = prompts[idx % len(prompts)]
         cases.append(
@@ -214,10 +209,7 @@ def _benign_cases(spec: BehaviorSpec, limit: int) -> list[TestCase]:
                 metadata={"severity": behavior.severity},
             )
         )
-        idx += 1
-        if idx > limit * len(behaviors) + limit:  # pragma: no cover - safety valve
-            break
-    return cases[:limit]
+    return cases
 
 
 def _scope_cases(spec: BehaviorSpec, axis: Axis, limit: int) -> list[TestCase]:

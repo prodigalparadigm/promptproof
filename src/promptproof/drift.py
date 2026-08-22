@@ -234,9 +234,6 @@ DRIFT_STRATEGIES: tuple[DriftStrategy, ...] = (
     ),
 )
 
-STRATEGIES_BY_NAME: dict[str, DriftStrategy] = {s.name: s for s in DRIFT_STRATEGIES}
-
-
 def build_drift_ladder(strategy: DriftStrategy, *, spec: BehaviorSpec, topic: str) -> tuple[Turn, ...]:
     """Build one drift ladder.
 

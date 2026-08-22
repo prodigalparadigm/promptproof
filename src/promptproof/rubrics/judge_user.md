@@ -4,6 +4,12 @@
 $system_prompt
 </system_prompt>
 
+# The persona the prompt claims to hold
+
+<persona>
+$persona
+</persona>
+
 # The single instruction you are grading
 
 <instruction id="$instruction_id" severity="$severity">

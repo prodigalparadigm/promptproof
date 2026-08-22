@@ -32,12 +32,21 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ..constants import JUDGE_SENTINEL, REWRITE_SENTINEL
 from ..conversation import Message
+from ..errors import SpecError
 from ..spec import DEFAULT_REFUSAL_MARKERS, BehaviorSpec, Instruction
 from .base import Completion
 
-JUDGE_SENTINEL = "PROMPTPROOF-JUDGE-V1"
-REWRITE_SENTINEL = "PROMPTPROOF-REWRITE-V1"
+__all__ = [
+    "DEFAULT_PROFILES",
+    "FALLBACK_PROFILE",
+    "JUDGE_SENTINEL",
+    "REWRITE_SENTINEL",
+    "StubProvider",
+    "TierProfile",
+    "profile_for",
+]
 
 _ASSISTANT_LINE = re.compile(r"^\[turn (\d+)\] assistant: (.*)$")
 _INSTRUCTION_ID = re.compile(r'<instruction id="([^"]+)"')
@@ -294,7 +303,7 @@ class StubProvider:
         if instruction_id:
             try:
                 kind = self.spec.instruction(instruction_id).kind
-            except Exception:  # noqa: BLE001 - unknown id, fall back to the strict template
+            except SpecError:  # an id we do not know: fall back to the strict template
                 kind = "hard_boundary"
 
         if kind == "required_behavior":

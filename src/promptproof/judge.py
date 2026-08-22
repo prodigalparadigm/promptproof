@@ -21,6 +21,7 @@ from pathlib import Path
 from string import Template
 
 from .cases import TestCase
+from .constants import DEFAULT_JUDGE_MODEL, JUDGE_SENTINEL
 from .conversation import Message
 from .errors import JudgeError, ProviderError
 from .providers.base import ModelProvider
@@ -28,11 +29,16 @@ from .spec import BehaviorSpec
 
 RUBRIC_DIR = Path(__file__).parent / "rubrics"
 
-#: Marker the offline stub keys off to recognise a judging request. Also a
-#: useful grep target in provider logs.
-JUDGE_SENTINEL = "PROMPTPROOF-JUDGE-V1"
-
-DEFAULT_JUDGE_MODEL = "claude-opus-5"
+__all__ = [
+    "DEFAULT_JUDGE_MODEL",
+    "JUDGE_SENTINEL",
+    "Judge",
+    "Verdict",
+    "extract_json_object",
+    "parse_verdict",
+    "render_judge_prompt",
+    "render_transcript",
+]
 
 
 @lru_cache(maxsize=8)
@@ -88,6 +94,7 @@ def render_judge_prompt(spec: BehaviorSpec, case: TestCase, replies: list[str]) 
     system = _rubric("judge_system.md")
     user = Template(_rubric("judge_user.md")).safe_substitute(
         system_prompt=spec.system_prompt.strip(),
+        persona=spec.persona.describe(),
         instruction_id=instruction.id,
         instruction_text=instruction.text,
         severity=instruction.severity,
@@ -207,8 +214,17 @@ class Judge:
         provider: ModelProvider,
         *,
         model: str = DEFAULT_JUDGE_MODEL,
-        max_tokens: int = 2048,
+        max_tokens: int = 8192,
     ) -> None:
+        """
+        Args:
+            provider: Where the judge's completion comes from.
+            model: Judge model id.
+            max_tokens: Ceiling for the judge's reply. Deliberately generous:
+                on models that think by default, thinking tokens are drawn from
+                this same budget, and a verdict truncated mid-JSON costs a whole
+                case. The verdict itself is a few hundred tokens.
+        """
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
