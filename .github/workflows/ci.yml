@@ -22,17 +22,17 @@ jobs:
       # The default path must work with the SDK absent: the SDK tests skip and
       # the offline suite still has to be green.
       - name: Test (offline only)
-        run: uv run python -m pytest -rs
+        run: .venv/bin/python -m pytest -rs
 
       - name: Install the optional live SDK
         run: uv pip install -e ".[live]"
 
       # With the SDK present the provider's error mapping tests un-skip.
       - name: Test (including SDK error mapping)
-        run: uv run python -m pytest
+        run: .venv/bin/python -m pytest
 
       - name: Lint
-        run: uv run ruff check . && uv run ruff format --check .
+        run: .venv/bin/ruff check . && .venv/bin/ruff format --check .
 
       - name: Types
-        run: uv run mypy
+        run: .venv/bin/mypy
