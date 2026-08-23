@@ -15,22 +15,24 @@ jobs:
           python-version: "3.12"
 
       - name: Install without the optional SDK
-        run: uv pip install --system -e ".[dev]"
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
 
       # The default path must work with the SDK absent: the SDK tests skip and
       # the offline suite still has to be green.
       - name: Test (offline only)
-        run: python -m pytest -rs
+        run: uv run python -m pytest -rs
 
       - name: Install the optional live SDK
-        run: uv pip install --system -e ".[live]"
+        run: uv pip install -e ".[live]"
 
       # With the SDK present the provider's error mapping tests un-skip.
       - name: Test (including SDK error mapping)
-        run: python -m pytest
+        run: uv run python -m pytest
 
       - name: Lint
-        run: ruff check . && ruff format --check .
+        run: uv run ruff check . && uv run ruff format --check .
 
       - name: Types
-        run: mypy
+        run: uv run mypy
