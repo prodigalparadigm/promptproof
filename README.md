@@ -203,6 +203,10 @@ between model tiers.
 - Single-tenant, single-process, filesystem output. No storage backend, no run history,
   no trend tracking across commits.
 
+## Authorship
+
+Kathleen Bartin, with Claude. Co-authored at Prodigal Paradigm LLC in August 2026 using Claude Code: the design decisions, the tests, and this README were produced together. The co-byline is the house standard, not small print.
+
 ## License
 
 MIT. Copyright (c) 2026 Kathleen Bartin. See [LICENSE](LICENSE).
